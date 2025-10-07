@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抽象田徑賽</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/tone@14.7.58/build/Tone.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a2e;
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+
+        #game-container {
+            position: relative;
+            width: 95vw;
+            max-width: 800px;
+            height: 60vh;
+            max-height: 500px;
+            background-color: #0f0f2a;
+            border: 4px solid #4a4a6a;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+            margin-bottom: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            background-color: #1a1a2e;
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            background-color: #e94560;
+            color: white;
+            font-weight: bold;
+            text-transform: uppercase;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            border: none;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .button:active {
+            transform: translateY(0);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .info-box {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+        }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.75);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        .modal-content {
+            background-color: #2b2c45;
+            padding: 2rem;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            min-width: 300px;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div class="flex flex-col items-center justify-center min-h-screen p-4">
+        <h1 class="text-4xl font-bold mb-8 text-center text-red-500">抽象田徑賽</h1>
+        <div id="game-container">
+            <canvas id="gameCanvas"></canvas>
+            <div class="info-box">
+                <p>距離: <span id="distance">0</span>m</p>
+                <p>速度: <span id="speed">0</span>m/s</p>
+                <p>最高分: <span id="highScore">0</span>m</p>
+            </div>
+        </div>
+        <div class="controls">
+            <button id="startButton" class="button">開始遊戲</button>
+            <button id="jumpButton" class="button">跳躍</button>
+            <button id="resetButton" class="button">重新開始</button>
+        </div>
+    </div>
+
+    <!-- Modal for game messages -->
+    <div id="messageModal" class="modal">
+        <div class="modal-content">
+            <p id="modalMessage" class="text-xl font-bold mb-4"></p>
+            <button id="modalCloseButton" class="button">確定</button>
+        </div>
+    </div>
+
+    <script>
+        // Use a function to show modal messages instead of alert()
+        function showMessage(message) {
+            const modal = document.getElementById('messageModal');
+            const modalMessage = document.getElementById('modalMessage');
+            modalMessage.textContent = message;
+            modal.style.display = 'flex';
+        }
+
+        document.getElementById('modalCloseButton').addEventListener('click', () => {
+            document.getElementById('messageModal').style.display = 'none';
+        });
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+        const jumpButton = document.getElementById('jumpButton');
+        const resetButton = document.getElementById('resetButton');
+        const distanceDisplay = document.getElementById('distance');
+        const speedDisplay = document.getElementById('speed');
+        const highScoreDisplay = document.getElementById('highScore');
+
+        // Player properties
+        const player = {
+            x: 50,
+            y: 0,
+            radius: 20,
+            color: '#ffc94b',
+            velocityY: 0,
+            gravity: 0.5,
+            isJumping: false,
+            baseColor: '#ffc94b'
+        };
+
+        // Game state
+        let isGameStarted = false;
+        let obstacles = [];
+        let score = 0;
+        let highScore = localStorage.getItem('trackHighScore') || 0;
+        let gameSpeed = 6; // Adjusted base speed
+        let baseGameSpeed = 6; // Adjusted base speed
+        let lastObstacleTime = 0;
+        let powerUps = [];
+        let lastPowerUpTime = 0;
+        const obstacleSpawnInterval = 1500; // milliseconds
+        const powerUpSpawnInterval = 5000; // milliseconds
+        const powerUpDuration = 3000; // milliseconds
+        let lastFrameTime = 0;
+
+        // Background properties
+        let starsFar = [];
+        let starsNear = [];
+        let backgroundBlobs = [];
+
+        // Sound effects using Tone.js
+        const jumpSynth = new Tone.PolySynth(Tone.Synth).toDestination();
+        const crashSynth = new Tone.NoiseSynth().toDestination();
+        const powerUpSynth = new Tone.Synth().toDestination();
+        const gameSoundActive = false; // Set to true to enable sound, false to disable
+
+        // Event listeners for game controls
+        startButton.addEventListener('click', startGame);
+        jumpButton.addEventListener('click', jump);
+        resetButton.addEventListener('click', resetGame);
+        // Add keyboard support for jumping (spacebar)
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && isGameStarted) {
+                jump();
+            }
+        });
+
+        // Resize the canvas to fit its container
+        function resizeCanvas() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            // The player's y position is the bottom of the canvas minus its radius
+            player.y = canvas.height - player.radius;
+            initBackground(); // Reinitialize background on resize
+        }
+        window.addEventListener('resize', resizeCanvas);
+        window.onload = () => {
+            resizeCanvas();
+            updateHighScoreDisplay();
+        };
+
+        // Initialize background stars
+        function initBackground() {
+            starsFar = [];
+            starsNear = [];
+            for (let i = 0; i < 100; i++) {
+                starsFar.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 1.5 + 0.5,
+                    alpha: Math.random()
+                });
+            }
+            for (let i = 0; i < 50; i++) {
+                starsNear.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 2.5 + 1.5,
+                    alpha: Math.random()
+                });
+            }
+        }
+        
+        // Function to create a background blob
+        function createBackgroundBlob() {
+            backgroundBlobs.push({
+                x: canvas.width + 50,
+                y: Math.random() * (canvas.height - 100) + 50,
+                radius: Math.random() * 50 + 20,
+                color: `rgba(255, 255, 255, ${Math.random() * 0.1 + 0.05})`,
+                speedX: Math.random() * 0.5 + 0.2,
+                speedY: Math.random() * 0.2 - 0.1
+            });
+        }
+
+        // Function to start the game
+        function startGame() {
+            if (!isGameStarted) {
+                isGameStarted = true;
+                startButton.disabled = true;
+                jumpButton.disabled = false;
+                resetButton.disabled = false;
+                lastFrameTime = performance.now();
+                lastPowerUpTime = performance.now();
+                gameLoop();
+                if (gameSoundActive) {
+                    Tone.start();
+                }
+            }
+        }
+
+        // Function to reset the game
+        function resetGame() {
+            isGameStarted = false;
+            startButton.disabled = false;
+            jumpButton.disabled = true;
+            resetButton.disabled = true;
+            obstacles = [];
+            powerUps = [];
+            score = 0;
+            gameSpeed = 6; // Adjusted base speed
+            baseGameSpeed = 6; // Adjusted base speed
+            player.x = 50;
+            player.y = canvas.height - player.radius;
+            player.velocityY = 0;
+            player.isJumping = false;
+            player.color = player.baseColor;
+            distanceDisplay.textContent = 0;
+            speedDisplay.textContent = gameSpeed.toFixed(1);
+            updateHighScoreDisplay();
+            draw();
+        }
+
+        // Function to handle player jump
+        function jump() {
+            if (!player.isJumping) {
+                player.isJumping = true;
+                player.velocityY = -12;
+                if (gameSoundActive) {
+                    jumpSynth.triggerAttackRelease(["C4", "E4", "G4"], "8n");
+                }
+            }
+        }
+
+        // Function to create an obstacle
+        function createObstacle() {
+            const minHeight = 20;
+            const maxHeight = 80;
+            const height = Math.random() * (maxHeight - minHeight) + minHeight;
+            const width = Math.random() * 20 + 20;
+            obstacles.push({
+                x: canvas.width,
+                y: canvas.height - height,
+                width: width,
+                height: height,
+                color: '#ff8a5c'
+            });
+        }
+
+        // Function to create a power-up
+        function createPowerUp() {
+            const size = 30;
+            powerUps.push({
+                x: canvas.width,
+                y: canvas.height - size - 20 - Math.random() * 50, // Position above the ground
+                size: size,
+                color: '#6ee7b7'
+            });
+        }
+
+        // Game loop
+        function gameLoop(timestamp) {
+            if (!isGameStarted) return;
+            const deltaTime = timestamp - lastFrameTime;
+            lastFrameTime = timestamp;
+
+            update(deltaTime);
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Update game state
+        function update(deltaTime) {
+            // Update player position
+            player.velocityY += player.gravity;
+            player.y += player.velocityY;
+
+            if (player.y >= canvas.height - player.radius) {
+                player.y = canvas.height - player.radius;
+                player.isJumping = false;
+                player.velocityY = 0;
+            }
+
+            // Update obstacles and check for collisions
+            const obstacleSpawnNow = performance.now() - lastObstacleTime > obstacleSpawnInterval;
+            if (obstacleSpawnNow) {
+                createObstacle();
+                lastObstacleTime = performance.now();
+            }
+
+            obstacles.forEach(obstacle => {
+                obstacle.x -= gameSpeed;
+                // Check for collision using player circle and obstacle rectangle
+                const closestX = Math.max(obstacle.x, Math.min(player.x, obstacle.x + obstacle.width));
+                const closestY = Math.max(obstacle.y, Math.min(player.y, obstacle.y + obstacle.height));
+                const distanceX = player.x - closestX;
+                const distanceY = player.y - closestY;
+                const distanceSquared = (distanceX * distanceX) + (distanceY * distanceY);
+
+                if (distanceSquared < (player.radius * player.radius)) {
+                    gameOver();
+                }
+            });
+
+            // Update power-ups and check for collisions
+            const powerUpSpawnNow = performance.now() - lastPowerUpTime > powerUpSpawnInterval;
+            if (powerUpSpawnNow) {
+                createPowerUp();
+                lastPowerUpTime = performance.now();
+            }
+
+            powerUps.forEach(powerUp => {
+                powerUp.x -= gameSpeed;
+                // Check for collision with player circle
+                const dist = Math.hypot(player.x - powerUp.x, player.y - powerUp.y);
+                if (dist < player.radius + powerUp.size / 2) {
+                    activatePowerUp();
+                }
+            });
+            
+            // Remove off-screen obstacles and collected power-ups
+            obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
+            powerUps = powerUps.filter(powerUp => powerUp.x + powerUp.size > 0);
+
+
+            // Update background blobs
+            if (Math.random() < 0.01) {
+                createBackgroundBlob();
+            }
+            backgroundBlobs.forEach(blob => {
+                blob.x -= blob.speedX;
+                blob.y += blob.speedY;
+                blob.alpha -= 0.001;
+            });
+            backgroundBlobs = backgroundBlobs.filter(blob => blob.alpha > 0);
+
+
+            // Update score and speed
+            const secondsPassed = deltaTime / 1000;
+            const distanceIncrease = gameSpeed * secondsPassed;
+            score += distanceIncrease * 0.1;
+            
+            // Increment speed based on time
+            baseGameSpeed += 0.005; // Adjusted speed increment
+
+            // Apply power-up speed boost if active
+            gameSpeed = baseGameSpeed;
+            if (player.color === '#6ee7b7') {
+                gameSpeed *= 3; // Increased power-up speed boost
+            }
+
+            distanceDisplay.textContent = Math.floor(score).toLocaleString();
+            speedDisplay.textContent = gameSpeed.toFixed(1);
+        }
+
+        // Function to activate the power-up effect
+        function activatePowerUp() {
+            // Change player color for visual feedback
+            player.color = '#6ee7b7';
+            if (gameSoundActive) {
+                powerUpSynth.triggerAttackRelease("G4", "8n");
+            }
+            // Use a timer to revert back to original state
+            setTimeout(() => {
+                player.color = player.baseColor;
+            }, powerUpDuration);
+        }
+
+        // Draw everything on the canvas
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw animated background stars (parallax effect)
+            starsFar.forEach(star => {
+                star.x -= gameSpeed * 0.05;
+                if (star.x < 0) star.x = canvas.width;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
+                ctx.fill();
+            });
+
+            starsNear.forEach(star => {
+                star.x -= gameSpeed * 0.1;
+                if (star.x < 0) star.x = canvas.width;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
+                ctx.fill();
+            });
+
+            // Draw background blobs
+            backgroundBlobs.forEach(blob => {
+                ctx.fillStyle = blob.color;
+                ctx.beginPath();
+                ctx.arc(blob.x, blob.y, blob.radius, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+
+            // Draw ground with a gradient to simulate light/shadows
+            const gradient = ctx.createLinearGradient(0, canvas.height - 20, canvas.width, canvas.height - 20);
+            gradient.addColorStop(0, '#3a3a5a'); // A slightly darker color for the foreground
+            gradient.addColorStop(1, '#4a4a6a'); // The original color for the background
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+
+            // Draw player (a simple circle)
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.fillStyle = player.color;
+            ctx.fill();
+            ctx.closePath();
+
+            // Draw obstacles with a simple shadow effect
+            obstacles.forEach(obstacle => {
+                // Draw the main obstacle
+                ctx.fillStyle = obstacle.color;
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+
+                // Draw a simple shadow to the right
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                ctx.fillRect(obstacle.x + obstacle.width, obstacle.y, 5, obstacle.height);
+            });
+
+            // Draw power-ups (as diamonds)
+            powerUps.forEach(powerUp => {
+                ctx.fillStyle = powerUp.color;
+                ctx.beginPath();
+                ctx.moveTo(powerUp.x, powerUp.y - powerUp.size / 2);
+                ctx.lineTo(powerUp.x + powerUp.size / 2, powerUp.y);
+                ctx.lineTo(powerUp.x, powerUp.y + powerUp.size / 2);
+                ctx.lineTo(powerUp.x - powerUp.size / 2, powerUp.y);
+                ctx.closePath();
+                ctx.fill();
+            });
+        }
+
+        // Game over function
+        function gameOver() {
+            isGameStarted = false;
+            startButton.disabled = false;
+            jumpButton.disabled = true;
+            resetButton.disabled = false;
+            if (gameSoundActive) {
+                crashSynth.triggerAttackRelease("16n");
+            }
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('trackHighScore', Math.floor(highScore));
+                updateHighScoreDisplay();
+                showMessage(`新高分！你跑了 ${Math.floor(score).toLocaleString()} 公尺`);
+            } else {
+                showMessage(`遊戲結束！你跑了 ${Math.floor(score).toLocaleString()} 公尺`);
+            }
+        }
+
+        // Update high score display
+        function updateHighScoreDisplay() {
+            highScoreDisplay.textContent = Math.floor(highScore).toLocaleString();
+        }
+
+        // Initial draw
+        draw();
+    </script>
+</body>
+</html>
